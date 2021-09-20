@@ -24,6 +24,15 @@ typedef int tid_t;
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
 
+// mlfqs
+#define NICE_MIN -20
+#define NICE_DEFAULT 0
+#define NICE_MAX 20
+
+#define RECENT_CPU_DEFAULT 0
+
+#define LOAD_AVG_DEFAULT 0
+
 /* A kernel thread or user process.
 
    Each thread structure is stored in its own 4 kB page.  The
@@ -100,6 +109,19 @@ struct thread
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
+
+
+
+   // lab1 implementation
+   int64_t wake_up_tick; // wake up tick variable to implement sleep
+  
+   int original_priority; // original priority of thread before donation
+   struct list doner_list; // list of donor thread 
+   struct list_elem donorelem; // list element for donor list
+   struct lock * lock_needed; // lock that this thread requires
+
+   int nice; // niceness of this thread
+   int recent_cpu; // recent usage of cpu by this thread
   };
 
 /* If false (default), use round-robin scheduler.
@@ -137,5 +159,23 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+
+// lab1 implementation
+void thread_sleep(int64_t ticks);
+void thread_awake(int64_t ticks);
+int64_t get_tick_to_awake(void);
+
+bool priority_cmp(struct list_elem * a, struct list_elem * b, void * aux UNUSED);
+void priority_preempt(void);
+
+void donate_priority(void);
+void priority_check(void);
+
+void mlfqs_update_priority(struct thread *t);
+void mlfqs_update_recent_cpu(struct thread *t);
+void mlfqs_update_load_avg(void);
+void mlfqs_update_all_recent_cpu(void);
+void mlfqs_update_all_priority(void);
 
 #endif /* threads/thread.h */
