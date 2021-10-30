@@ -97,6 +97,7 @@ struct thread
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
+    struct semaphore load_lock;
     struct semaphore zombie_lock;
     struct semaphore child_lock;
     struct list childs;

@@ -7,6 +7,7 @@ typedef int pid_t;
 void syscall_init (void);
 
 void verify_address(void *);
+void verify_str(const char *);
 void get_arg(void *, int *, int);
 
 void halt(void);

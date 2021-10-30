@@ -46,11 +46,15 @@ process_execute (const char *file_name)
   char * sptr;
   _file_name = strtok_r(_file_name, " ", &sptr);
 
+  if(!filesys_open(_file_name)) { // check if file_name is not valid
+    return -1;
+  }
+
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (_file_name, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
-  return process_wait(tid);
+  return tid;
 }
 
 /* A thread function that loads a user process and starts it
@@ -96,6 +100,7 @@ start_process (void *file_name_)
 
   arg_stk(argv, argc, &if_);
   // hex_dump(if_.esp, if_.esp, PHYS_BASE - if_.esp, true); // for argument passing debugging
+  sema_up(&(thread_current()->load_lock));
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in

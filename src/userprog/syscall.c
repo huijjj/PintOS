@@ -29,47 +29,51 @@ syscall_handler (struct intr_frame *f UNUSED)
 
     case SYS_EXIT:
       get_arg(f->esp, args, 1);
-      exit(args[0]);
+      exit((int)args[0]);
       break;
 
     case SYS_EXEC:
       get_arg(f->esp, args, 1);
-      exec((const char *)args[0]);
+      verify_str((const char *)args[0]);
+      f->eax = exec((const char *)args[0]);
       break;
     
     case SYS_WAIT:
       get_arg(f->esp, args, 1);
-      wait((pid_t)args[0]);
+      f->eax = wait((pid_t)args[0]);
       break;
     
     case SYS_CREATE:
       get_arg(f->esp, args, 2);
-      create((const char *)args[0], (unsigned int)args[1]);
+      verify_str((const char *)args[0]);
+      f->eax = create((const char *)args[0], (unsigned int)args[1]);
       break;
 
     case SYS_REMOVE:
       get_arg(f->esp, args, 1);
-      remove((const char *)args[0]);
+      verify_str((const char *)args[0]);
+      f->eax = remove((const char *)args[0]);
       break;
 
     case SYS_OPEN:
       get_arg(f->esp, args, 1);
-      open((const char *)args[0]);
+      verify_str((const char *)args[0]);
+      f->eax = open((const char *)args[0]);
       break;
 
     case SYS_FILESIZE:
       get_arg(f->esp, args, 1);
-      filesize((int)args[0]);
+      f->eax = filesize((int)args[0]);
       break;
 
     case SYS_READ:
       get_arg(f->esp, args, 3);
-      read((int)args[0], (void *)args[1], (unsigned int)args[2]);
+      f->eax = read((int)args[0], (void *)args[1], (unsigned int)args[2]);
       break;
 
     case SYS_WRITE:
       get_arg(f->esp, args, 3);
-      write((int)args[0], (void *)args[1], (unsigned int)args[2]);
+      f->eax = write((int)args[0], (void *)args[1], (unsigned int)args[2]);
       break;
 
     case SYS_SEEK:
@@ -79,7 +83,7 @@ syscall_handler (struct intr_frame *f UNUSED)
 
     case SYS_TELL:
       get_arg(f->esp, args, 1);
-      tell((int)args[0]);
+      f->eax = tell((int)args[0]);
       break;
 
     case SYS_CLOSE:
@@ -95,6 +99,14 @@ void verify_address(void * addr) {
     exit(-1);
   }
 
+  return;
+}
+
+void verify_str(const char * str) {
+  int i;
+  for(i = 0; i <= strlen(str) + 1; i++) {
+    verify_address(str + i);
+  }
   return;
 }
 
@@ -122,15 +134,24 @@ void exit(int status) {
 }
 
 bool create(const char * file, unsigned int initial_size) {
-
+  return filesys_create(file, initial_size);
 }
 
 bool remove(const char * file) {
-
+  return filesys_remove(file);
 }
 
 pid_t exec(const char * cmd_lime) {
-  return process_execute(cmd_lime);
+  pid_t pid = process_execute(cmd_lime);
+  struct thread * cur = thread_current();
+  struct list_elem * e = list_begin(&(cur->childs));
+  for(;e != list_end(&(cur->childs)); e = list_next(e)) {
+    struct thread * child = list_entry(e, struct thread, child_elem);
+    if(child->tid == pid) {
+      sema_down(&(child->load_lock));
+    }
+  }
+  return pid;
 }
 
 int wait(pid_t pid) {
