@@ -42,8 +42,8 @@ process_execute (const char *file_name)
   int len = strlen(file_name) + 1;
   char * _file_name = (char *)malloc(len);
   strlcpy(_file_name, file_name, len);
-  char * save_ptr;
-  _file_name = strtok_r(_file_name, " ", &save_ptr);
+  char * sptr;
+  _file_name = strtok_r(_file_name, " ", &sptr);
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (_file_name, PRI_DEFAULT, start_process, fn_copy);
@@ -66,12 +66,35 @@ start_process (void *file_name_)
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  success = load (file_name, &if_.eip, &if_.esp);
+
+  char * argv[64];
+  int argc = 0;
+
+  int len = strlen(file_name) + 1;
+  char * _file_name = (char *)malloc(len);
+  strlcpy(_file_name, file_name, len);
+  char * sptr;
+  char * token;
+
+  // fill up argv 
+  for( 
+    token = strtok_r(_file_name, " ", &sptr);
+    token != NULL;
+    token = strtok_r(NULL, " ", &sptr)) {
+    argv[argc] = token;
+    argc += 1;
+  }
+
+  palloc_free_page (file_name);
+  success = load (argv[0], &if_.eip, &if_.esp);
 
   /* If load failed, quit. */
-  palloc_free_page (file_name);
-  if (!success) 
+  if (!success) {
     thread_exit ();
+  }
+
+  arg_stk(argv, argc, &if_);
+  // hex_dump(if_.esp, if_.esp, PHYS_BASE - if_.esp, true); // for argument passing debugging
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -95,6 +118,9 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
+  // pseudo sleep 
+  while(true);
+
   return -1;
 }
 
@@ -469,4 +495,44 @@ install_page (void *upage, void *kpage, bool writable)
      address, then map our page there. */
   return (pagedir_get_page (t->pagedir, upage) == NULL
           && pagedir_set_page (t->pagedir, upage, kpage, writable));
+}
+
+// argument passing
+void arg_stk(char ** argv, uint32_t argc, struct intr_frame * if_) {
+  int i;
+  char * arg_ptr[64];
+  
+  // stacking argument string
+  for(i = argc - 1; i > -1; i--) {
+    int arg_len = strlen(argv[i]) + 1;
+    if_->esp -= arg_len;
+    memcpy(if_->esp, argv[i], arg_len);
+    arg_ptr[i] = if_->esp;
+  }
+
+  // aligning word boundary
+  while((unsigned int)if_->esp % 4 != 0) {
+    if_->esp--;
+    *(uint8_t *)if_->esp = 0;
+  }
+  
+  // stacking argv[]
+  if_->esp -= 4;
+  memset(if_->esp, 0, sizeof(char *));
+  for(i = argc - 1; i > -1; i--) {
+    if_->esp -= 4;
+    *(uint32_t *)(if_->esp) = (uint32_t)arg_ptr[i];
+  }
+
+  // stacking argv and argc
+  if_->esp -= 4;
+  *(uint32_t *)(if_->esp) = (uint32_t)(if_->esp + 4);
+  if_->esp -= 4;
+  *(uint32_t *)(if_->esp) = argc;
+
+  // fake return address
+  if_->esp -= 4;
+  memset(if_->esp, 0, sizeof(char *));
+  
+  return;
 }

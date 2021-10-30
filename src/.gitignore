@@ -3,3 +3,5 @@ cscope.out
 TAGS
 tags
 filesys.dsk
+*.o
+*.a
