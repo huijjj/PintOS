@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/synch.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -81,7 +82,7 @@ typedef int tid_t;
    ready state is on the run queue, whereas only a thread in the
    blocked state is on a semaphore wait list. */
 struct thread
-  {
+   {
     /* Owned by thread.c. */
     tid_t tid;                          /* Thread identifier. */
     enum thread_status status;          /* Thread state. */
@@ -96,6 +97,16 @@ struct thread
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
+    struct semaphore load_lock;
+    struct semaphore zombie_lock;
+    struct semaphore child_lock;
+    struct list child_list;
+    struct list_elem child_elem;
+    int exit_status;
+    bool load_result;
+    struct file * run_file;
+    int next_fd;
+    struct file ** fdt;
 #endif
 
     /* Owned by thread.c. */
@@ -137,5 +148,7 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+struct thread * get_child(tid_t);
 
 #endif /* threads/thread.h */
