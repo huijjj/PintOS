@@ -17,6 +17,7 @@
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include <list.h>
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -49,7 +50,7 @@ process_execute (const char *file_name)
   tid = thread_create (_file_name, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
-  return tid;
+  return process_wait(tid);
 }
 
 /* A thread function that loads a user process and starts it
@@ -118,8 +119,20 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-  // pseudo sleep 
-  while(true);
+  struct thread * t;
+  int exit_status;
+  struct list_elem * e = list_begin(&(thread_current()->childs));
+
+  for(; e != list_end(&(thread_current()->childs)); e = list_next(e)) {
+    t = list_entry(e, struct thread, child_elem);
+    if(child_tid == t->tid) {
+      sema_down(&(t->child_lock));
+      exit_status = t->exit_status;
+      list_remove(&(t->child_elem));
+      sema_up(&(t->zombie_lock));
+      return exit_status;
+    }
+  }
 
   return -1;
 }
@@ -147,6 +160,8 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+  sema_up(&(cur->child_lock));
+  sema_down(&(cur->zombie_lock));
 }
 
 /* Sets up the CPU for running user code in the current

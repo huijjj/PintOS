@@ -465,6 +465,12 @@ init_thread (struct thread *t, const char *name, int priority)
   t->magic = THREAD_MAGIC;
 
   old_level = intr_disable ();
+#ifdef USERPROG
+  sema_init(&(t->child_lock), 0);
+  sema_init(&(t->zombie_lock), 0);
+  list_init(&(t->childs));
+  list_push_back(&(running_thread()->childs), &(t->child_elem));
+#endif
   list_push_back (&all_list, &t->allelem);
   intr_set_level (old_level);
 }
