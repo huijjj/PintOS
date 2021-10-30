@@ -183,6 +183,14 @@ thread_create (const char *name, int priority,
   init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();
 
+  if((t->fdt = palloc_get_page(PAL_ZERO)) == NULL) {
+    // palloc_free_page(t);
+    return TID_ERROR;
+  }
+  t->next_fd = 2;
+  t->fdt -= 2;
+  list_push_back(&(thread_current()->child_list), &(t->child_elem));
+
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
   kf->eip = NULL;
@@ -286,12 +294,22 @@ thread_exit (void)
   process_exit ();
 #endif
 
+  struct thread * cur = thread_current();
+  struct list_elem * e = list_begin(&(cur->child_list));
+  for(; e != list_end(&(cur->child_list)); e = list_next(e)) {
+    struct thread * t = list_entry(e, struct thread, child_elem);
+    sema_up(&(t->zombie_lock));
+  }
+
+  sema_up(&(cur->child_lock));
+  sema_down(&(cur->zombie_lock));
+
   /* Remove thread from all threads list, set our status to dying,
      and schedule another process.  That process will destroy us
      when it calls thread_schedule_tail(). */
   intr_disable ();
-  list_remove (&thread_current()->allelem);
-  thread_current ()->status = THREAD_DYING;
+  list_remove (&(cur->allelem));
+  cur->status = THREAD_DYING;
   schedule ();
   NOT_REACHED ();
 }
@@ -465,13 +483,14 @@ init_thread (struct thread *t, const char *name, int priority)
   t->magic = THREAD_MAGIC;
 
   old_level = intr_disable ();
+
 #ifdef USERPROG
   sema_init(&(t->child_lock), 0);
   sema_init(&(t->zombie_lock), 0);
   sema_init(&(t->load_lock), 0);
-  list_init(&(t->childs));
-  list_push_back(&(running_thread()->childs), &(t->child_elem));
+  list_init(&(t->child_list));
 #endif
+
   list_push_back (&all_list, &t->allelem);
   intr_set_level (old_level);
 }
@@ -589,3 +608,14 @@ allocate_tid (void)
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
+
+struct thread * get_child(tid_t tid) {
+  struct list_elem * e = list_begin (&thread_current ()->child_list);
+  for(; e != list_end (&thread_current ()->child_list); e = list_next (e)) {
+    struct thread * t = list_entry (e, struct thread, child_elem);
+    if (t->tid == tid)
+      return t;
+  }
+  return NULL;
+}
+

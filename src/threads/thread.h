@@ -100,9 +100,13 @@ struct thread
     struct semaphore load_lock;
     struct semaphore zombie_lock;
     struct semaphore child_lock;
-    struct list childs;
+    struct list child_list;
     struct list_elem child_elem;
     int exit_status;
+    bool load_result;
+    struct file * run_file;
+    int next_fd;
+    struct file ** fdt;
 #endif
 
     /* Owned by thread.c. */
@@ -144,5 +148,7 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+struct thread * get_child(tid_t);
 
 #endif /* threads/thread.h */
