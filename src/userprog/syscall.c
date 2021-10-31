@@ -119,8 +119,14 @@ void verify_address(void * addr) {
 }
 
 void verify_str(const char * str) {
-  verify_address(str);
-  verify_address(str + strlen(str) + 1);
+  int i = 0;
+  while(true) {
+    verify_address(str + i);
+    if(*(str + i) == '\0') {
+      break;
+    }
+    i++;
+  }
   return;
 }
 
@@ -136,6 +142,9 @@ void get_arg(void * esp, int * args, int count) {
   for(i = 0; i < count; i++) {
     ptr = (int *)esp + i + 1;
     verify_address(ptr);
+    verify_address(ptr + 1);
+    verify_address(ptr + 2);
+    verify_address(ptr + 3);
     args[i] = *ptr;
   }
 
