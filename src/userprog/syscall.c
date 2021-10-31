@@ -28,6 +28,9 @@ static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
   verify_address(f->esp);
+  verify_address(f->esp + 1);
+  verify_address(f->esp + 2);
+  verify_address(f->esp + 3);
   int args[3];
 
   switch(*(uint32_t *)(f->esp)) {
@@ -76,11 +79,13 @@ syscall_handler (struct intr_frame *f UNUSED)
 
     case SYS_READ:
       get_arg(f->esp, args, 3);
+      verify_buf((void *)args[1], (unsigned int)args[2]);
       f->eax = syscall_read((int)args[0], (void *)args[1], (unsigned int)args[2]);
       break;
 
     case SYS_WRITE:
       get_arg(f->esp, args, 3);
+      verify_buf((void *)args[1], (unsigned int)args[2]);
       f->eax = syscall_write((int)args[0], (void *)args[1], (unsigned int)args[2]);
       break;
 
@@ -106,7 +111,7 @@ syscall_handler (struct intr_frame *f UNUSED)
 }
 
 void verify_address(void * addr) {
-  if(!is_user_vaddr(addr)) {
+  if(!is_user_vaddr(addr) || pagedir_get_page(thread_current()->pagedir, addr) == NULL) {
     syscall_exit(-1);
   }
 
@@ -119,6 +124,13 @@ void verify_str(const char * str) {
     verify_address(str + i);
   }
   return;
+}
+
+void verify_buf(const void * buf, unsigned int size) {
+  int i = 0;
+  for(i = 0; i < size; i++) {
+    verify_address(buf + i);
+  }
 }
 
 void get_arg(void * esp, int * args, int count) {
