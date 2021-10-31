@@ -119,18 +119,14 @@ void verify_address(void * addr) {
 }
 
 void verify_str(const char * str) {
-  int i;
-  for(i = 0; i <= strlen(str) + 1; i++) {
-    verify_address(str + i);
-  }
+  verify_address(str);
+  verify_address(str + strlen(str) + 1);
   return;
 }
 
 void verify_buf(const void * buf, unsigned int size) {
-  int i = 0;
-  for(i = 0; i < size; i++) {
-    verify_address(buf + i);
-  }
+  verify_address(buf);
+  verify_address(buf + size);
 }
 
 void get_arg(void * esp, int * args, int count) {
@@ -188,7 +184,10 @@ int syscall_wait(pid_t pid) {
 }
 
 int syscall_open(const char * file) {
-  return process_add_file(filesys_open(file));
+  lock_acquire(&file_lock);
+  struct file * f = filesys_open(file);
+  lock_release(&file_lock);
+  return process_add_file(f);
 }
 
 int syscall_filesize(int fd) {
@@ -202,10 +201,9 @@ int syscall_filesize(int fd) {
 }
 
 int syscall_read(int fd, void * buffer, unsigned int size) {
+  lock_acquire(&file_lock);
   int i;
-
   if(fd == STDIN_FILENO) {
-    lock_acquire(&file_lock);
     for(i = 0; i < size; i++) {
       ((char *)buffer)[i] = input_getc();
       if(((char *)buffer)[i] == '\0') {
@@ -216,7 +214,6 @@ int syscall_read(int fd, void * buffer, unsigned int size) {
     return i + 1;
   }
   else {
-    lock_acquire(&file_lock);
     struct file * f = process_get_file(fd);
     if(f) {
       i = file_read(f, buffer, size);
