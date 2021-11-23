@@ -12,6 +12,8 @@
 #include "threads/malloc.h"
 #include "threads/synch.h"
 
+#include "vm/page.h"
+
 
 struct lock file_lock;
 
@@ -27,11 +29,15 @@ syscall_init (void)
 static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
+  // printf("(syscall handler)start\n");
+
   verify_address(f->esp);
   verify_address(f->esp + 1);
   verify_address(f->esp + 2);
   verify_address(f->esp + 3);
   int args[3];
+
+  // printf("(syscall handler) interrupt #: %d\n", *(uint32_t *)(f->esp));
 
   switch(*(uint32_t *)(f->esp)) {
     case SYS_HALT:
@@ -79,13 +85,13 @@ syscall_handler (struct intr_frame *f UNUSED)
 
     case SYS_READ:
       get_arg(f->esp, args, 3);
-      verify_buf((void *)args[1], (unsigned int)args[2]);
+      verify_buf((void *)args[1], (unsigned int)args[2], true);
       f->eax = syscall_read((int)args[0], (void *)args[1], (unsigned int)args[2]);
       break;
 
     case SYS_WRITE:
       get_arg(f->esp, args, 3);
-      verify_buf((void *)args[1], (unsigned int)args[2]);
+      verify_buf((void *)args[1], (unsigned int)args[2], false);
       f->eax = syscall_write((int)args[0], (void *)args[1], (unsigned int)args[2]);
       break;
 
@@ -107,13 +113,30 @@ syscall_handler (struct intr_frame *f UNUSED)
     default:
       syscall_exit(-1);
   }
+  
+  // printf("(syscall handler) end\n");
   // thread_exit ();
 }
 
+struct vm_entry * verify_vaddr(void * vaddr)
+{
+  struct vm_entry * vme = find_vme(vaddr);
+  if (vme == NULL) {
+	  syscall_exit(-1);
+  }
+  
+  return vme;
+}
+
 void verify_address(void * addr) {
-  if(!is_user_vaddr(addr) || pagedir_get_page(thread_current()->pagedir, addr) == NULL) {
+  // printf("(verify address) %x\n", addr);
+  if(!is_user_vaddr(addr) || addr < (void *)0x08048000) {
+    // printf("this\n");
     syscall_exit(-1);
   }
+
+  // printf("(verify address) naive done\n");
+  verify_vaddr(addr);
 
   return;
 }
@@ -127,12 +150,21 @@ void verify_str(const char * str) {
     }
     i++;
   }
+
   return;
 }
 
-void verify_buf(const void * buf, unsigned int size) {
+void verify_buf(const void * buf, unsigned int size, bool write) {
   verify_address(buf);
   verify_address(buf + size);
+  
+  unsigned int i = 0;
+  for(; i <= size; i++) {
+    struct vm_entry * temp = verify_vaddr(buf + i);
+    if(write && temp->writable == false) {
+      syscall_exit(-1);
+    }
+  }
 }
 
 void get_arg(void * esp, int * args, int count) {
@@ -193,9 +225,11 @@ int syscall_wait(pid_t pid) {
 }
 
 int syscall_open(const char * file) {
+  // printf("opening file: %s...\n", file);
   lock_acquire(&file_lock);
   struct file * f = filesys_open(file);
   lock_release(&file_lock);
+  // printf("done!, %x\n", f);
   return process_add_file(f);
 }
 

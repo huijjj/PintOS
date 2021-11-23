@@ -19,6 +19,8 @@
 #include "threads/vaddr.h"
 #include "threads/malloc.h"
 #include <list.h>
+#include <hash.h>
+#include "vm/page.h"
 
 extern struct lock file_lock;
 
@@ -32,6 +34,7 @@ static bool load (const char *cmdline, void (**eip) (void), void **esp);
 tid_t
 process_execute (const char * cmd_line) 
 {
+  // printf("process execute...\n");
   char *fn_copy;
   tid_t tid;
 
@@ -57,6 +60,8 @@ process_execute (const char * cmd_line)
   tid = thread_create (_file_name, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
+
+  // printf("...process execute\n");
   return tid;
 }
 
@@ -65,9 +70,14 @@ process_execute (const char * cmd_line)
 static void
 start_process (void *file_name_)
 {
+  // printf("start process...\n");
+
   char *file_name = file_name_;
   struct intr_frame if_;
   struct thread * cur = thread_current();
+
+  // initialize hash table
+  hash_init(&(cur->vm), vm_hash_func, vm_less_func, NULL);
 
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
@@ -94,6 +104,7 @@ start_process (void *file_name_)
   }
 
   palloc_free_page (file_name);
+
   cur->load_result = load (argv[0], &if_.eip, &if_.esp);
 
   sema_up(&(cur->load_lock));
@@ -106,6 +117,8 @@ start_process (void *file_name_)
 
   arg_stk(argv, argc, &if_);
   free(_file_name);
+
+  // printf("...start process\n");
 
   // hex_dump(if_.esp, if_.esp, PHYS_BASE - if_.esp, true); // for argument passing debugging
 
@@ -159,6 +172,10 @@ process_exit (void)
   cur->fdt += 2;
   palloc_free_page(cur->fdt);
   file_close(cur->run_file);
+
+
+  // destory vm entry
+  hash_destroy(&(cur->vm), vm_destroy_func);
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -270,6 +287,8 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
 bool
 load (const char *file_name, void (**eip) (void), void **esp) 
 {
+  // printf("load...\n");
+
   struct thread *t = thread_current ();
   struct Elf32_Ehdr ehdr;
   struct file *file = NULL;
@@ -294,7 +313,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
       goto done; 
     }
 
-  t->run_file = file_reopen(file);
+  t->run_file = file;
   file_deny_write(t->run_file);
 
   lock_release(&file_lock);
@@ -382,7 +401,9 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
  done:
   /* We arrive here whether the load is successful or not. */
-  file_close (file);
+
+  // printf("...load\n");
+
   return success;
 }
 
@@ -453,44 +474,50 @@ static bool
 load_segment (struct file *file, off_t ofs, uint8_t *upage,
               uint32_t read_bytes, uint32_t zero_bytes, bool writable) 
 {
+  // printf("load segement...\n");
+
   ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0);
   ASSERT (pg_ofs (upage) == 0);
   ASSERT (ofs % PGSIZE == 0);
 
+  // printf("initial read_bytes %d\n", read_bytes);
+  // printf("initial zero_bytes %d\n", zero_bytes);
+
   file_seek (file, ofs);
   while (read_bytes > 0 || zero_bytes > 0) 
     {
+      // printf("(loop)read_bytes %d\n", read_bytes);
+      // printf("(loop)zero_bytes %d\n", zero_bytes);
+
+
       /* Calculate how to fill this page.
          We will read PAGE_READ_BYTES bytes from FILE
          and zero the final PAGE_ZERO_BYTES bytes. */
       size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-      /* Get a page of memory. */
-      uint8_t *kpage = palloc_get_page (PAL_USER);
-      if (kpage == NULL)
-        return false;
-
-      /* Load this page. */
-      if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
-        {
-          palloc_free_page (kpage);
-          return false; 
-        }
-      memset (kpage + page_read_bytes, 0, page_zero_bytes);
-
-      /* Add the page to the process's address space. */
-      if (!install_page (upage, kpage, writable)) 
-        {
-          palloc_free_page (kpage);
-          return false; 
-        }
+      struct vm_entry * vme = malloc(sizeof(struct vm_entry)); // allocate new vm frame
+      vme->type = VM_BIN; // since file is excutable, set type to ELF
+      vme->vaddr = (void *)upage; // set virtual(user) address
+      vme->offset = ofs; // set file offset
+      vme->writable = writable; // set access authority
+      vme->is_loaded = false; // not loaded yet(lazy loading)
+      vme->file = file; // set file pointer
+      vme->read_bytes = page_read_bytes; // set read byte
+      vme->zero_bytes = page_zero_bytes; // set zero byte
+      
+      hash_insert(&(thread_current()->vm), &(vme->elem)); // insert initialized page to current thread's vm hash table 
 
       /* Advance. */
       read_bytes -= page_read_bytes;
       zero_bytes -= page_zero_bytes;
+      ofs += page_read_bytes;
       upage += PGSIZE;
     }
+
+  // printf("...load segement\n");
+
+
   return true;
 }
 
@@ -499,6 +526,8 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 static bool
 setup_stack (void **esp) 
 {
+  // printf("setup_stack...\n");
+
   uint8_t *kpage;
   bool success = false;
 
@@ -511,6 +540,17 @@ setup_stack (void **esp)
       else
         palloc_free_page (kpage);
     }
+
+  struct vm_entry * vme = malloc(sizeof(struct vm_entry)); // allocate new vm frame
+  vme->type = VM_ANON; // since file is excutable, set type to ELF
+  vme->vaddr = (void *)(((uint8_t *)PHYS_BASE) - PGSIZE); // set virtual(user) address
+  vme->writable = true; // set access authority
+  vme->is_loaded = true;
+
+  hash_insert(&(thread_current()->vm), &(vme->elem)); // insert initialized page to current thread's vm hash table 
+  
+  // printf("...setup stack\n");
+
   return success;
 }
 
@@ -575,6 +615,7 @@ void arg_stk(char ** argv, uint32_t argc, struct intr_frame * if_) {
 }
 
 int process_add_file(struct file * f) {
+
   if(!f) {
     return -1;
   }
@@ -607,4 +648,42 @@ void process_close_file(int fd) {
 
   file_close (cur->fdt[fd]);
   cur->fdt[fd] = NULL;
+}
+
+bool handle_mm_fault(struct vm_entry * target) {
+  // printf("page fault occured! %x, %d\n", target->vaddr, target->type);
+  void * kaddr = palloc_get_page(PAL_USER);
+  bool success = false;
+
+  if(!kaddr) {
+    return success;
+  }
+
+
+  switch (target->type) {
+    case VM_BIN:
+      success = load_file(kaddr, target);
+      break;
+    
+    case VM_FILE:
+      success = load_file(kaddr, target);
+      break;
+
+    case VM_ANON:
+      break;
+
+    default:
+      return success;
+  }
+
+  if(success) {
+    install_page(target->vaddr, kaddr, target->writable);
+    target->is_loaded = true;
+  }
+  else {
+    palloc_free_page(kaddr);
+  }
+
+  // printf("done\n");
+  return success;
 }
