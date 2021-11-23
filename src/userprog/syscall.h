@@ -24,4 +24,7 @@ void syscall_seek(int, unsigned int);
 unsigned syscall_tell(int);
 void syscall_close(int);
 
+int syscall_mmap(int, void *);
+void syscall_munmap(int);
+
 #endif /* userprog/syscall.h */

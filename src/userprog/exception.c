@@ -5,6 +5,9 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "userprog/syscall.h"
+#include "vm/page.h"
+#include "userprog/process.h"
+#include <debug.h>
 
 /* Number of page faults processed. */
 static long long page_fault_cnt;
@@ -123,6 +126,8 @@ kill (struct intr_frame *f)
 static void
 page_fault (struct intr_frame *f) 
 {
+	// printf("page fault occured...\n");
+
   bool not_present;  /* True: not-present page, false: writing r/o page. */
   bool write;        /* True: access was write, false: access was read. */
   bool user;         /* True: access by user, false: access by kernel. */
@@ -149,19 +154,39 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
-  if(user) {
-     syscall_exit(-1);
-   //   NOT_REACHED();
+   // printf("fault addr: %x\n", fault_addrc);
+
+  if(not_present == false) {
+   //  printf("page is present\n", fault_addr);
+    syscall_exit(-1); // writing to read only page
+  }
+  else {
+    struct vm_entry * target = find_vme(fault_addr); // get target virtual entry(frame)
+    if(target) {
+      if(write && !(target->writable)) { // writing to read only page
+      //   printf("writing to read only page\n", fault_addr);
+        syscall_exit(-1);
+      }
+      if(!handle_mm_fault(target)) { // handle page fault, bring page to memory
+      //   printf("handler failed!\n", fault_addr);
+        syscall_exit(-1);
+      }
+    }
+    else {
+      //  printf("target does not exist, %x\n", fault_addr);
+       if(fault_addr >= f->esp - 32) { // if addr is with in the grow limit, grow limit 32 is chosen because PUSHA instruction 
+         if(!expand_stack(fault_addr)) { 
+            // printf("failed to expand stack\n");
+            syscall_exit(-1);
+         }
+       }
+       else {
+         // printf("segmentation fault\n");
+         syscall_exit(-1);
+       }
+    }
   }
 
-  /* To implement virtual memory, delete the rest of the function
-     body, and replace it with code that brings in the page to
-     which fault_addr refers. */
-  printf ("Page fault at %p: %s error %s page in %s context.\n",
-          fault_addr,
-          not_present ? "not present" : "rights violation",
-          write ? "writing" : "reading",
-          user ? "user" : "kernel");
-  kill (f);
+	// printf("page fault handled!\n");
 }
 
