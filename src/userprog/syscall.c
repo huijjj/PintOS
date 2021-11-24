@@ -14,6 +14,7 @@
 
 #include "vm/page.h"
 
+#include <debug.h>
 
 struct lock file_lock;
 
@@ -109,6 +110,18 @@ syscall_handler (struct intr_frame *f UNUSED)
       get_arg(f->esp, args, 1);
       syscall_close((int)args[0]);
       break;
+    
+    case SYS_MMAP:
+      get_arg(f->esp, args, 2);
+      // printf("syscall mmap, %d, %x", (int)args[0], (void *)args[1]);
+      f->eax = syscall_mmap((int)args[0], (void *)args[1]);
+      // printf(", result: %d\n", f->eax);
+      break;
+    
+    case SYS_MUNMAP:
+      get_arg(f->esp, args, 1);
+      syscall_munmap((int)args[0]);
+      break;
 
     default:
       syscall_exit(-1);
@@ -188,6 +201,7 @@ void syscall_halt() {
 }
 
 void syscall_exit(int status) {
+  // debug_backtrace();
   printf("%s: exit(%d)\n", thread_name(), status);
   thread_current()->exit_status = status;
   thread_exit();
@@ -314,4 +328,74 @@ unsigned syscall_tell(int fd) {
 
 void syscall_close(int fd) {
   process_close_file(fd);
+}
+
+int syscall_mmap(int fd, void * addr) {
+  struct file * f = process_get_file(fd);
+  int size = syscall_filesize(fd);
+
+  if(!f || !addr || pg_ofs(addr)) {
+    // printf("[ err1 ]");
+    return -1;
+  }
+
+  void * ptr;
+  for(ptr = addr; ptr < addr + size; ptr += PGSIZE) {
+	  if(find_vme(ptr)) { // if current address is already occupied
+      // printf("[ err2 ]");
+      return -1;
+    }
+  }  
+
+  struct thread * cur = thread_current();
+  struct file * new_file = file_reopen(f);
+  int mapid = cur->next_mapid++;
+  struct mmap_file * mmf = malloc(sizeof(struct mmap_file));
+  
+  // initialize mmap_file structure
+  mmf->mapid = mapid;
+  mmf->file = new_file;
+  list_init(&(mmf->vme_list));
+  
+  // add to list
+  list_push_back(&(cur->mmap_list), &(mmf->elem));
+
+  // allocate virtual page frames
+  int ofs = 0;
+  struct vm_entry * vme;
+  while (size > 0) {
+	  vme = malloc(sizeof(struct vm_entry));
+	  vme->vaddr = addr;
+	  vme->type = VM_FILE;
+	  vme->is_loaded = false;
+	  vme->writable = true;
+	  vme->file = new_file;
+	  vme->offset = ofs;
+	  vme->read_bytes = size < PGSIZE ? size: PGSIZE;
+	  vme->zero_bytes = PGSIZE - vme->read_bytes;
+
+	  list_push_back (&(mmf->vme_list), &(vme->mmap_elem));
+	  hash_insert(&(thread_current()->vm), &(vme->elem));
+
+	  addr += PGSIZE;
+	  ofs += PGSIZE;
+	  size -= PGSIZE;
+  }
+
+  return mapid;
+}
+
+void syscall_munmap(int mapid) {
+  struct list * mmap_list = &(thread_current()->mmap_list);
+
+  struct mmap_file * mmf;
+  struct list_elem * e;
+  for(e = list_begin(mmap_list); e != list_end(mmap_list); e = list_next(e)) {
+    mmf = list_entry(e, struct mmap_file, elem);
+    if(mmf->mapid == mapid) { // find mapping with mapid
+      e = list_remove(e);
+      do_munmap(mmf);
+      break;
+    }
+  }
 }

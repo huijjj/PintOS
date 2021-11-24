@@ -10,7 +10,7 @@
 #define VM_FILE 1
 #define VM_ANON 2
 
-struct vm_entry {
+struct vm_entry { // page metadata
     uint8_t type;
     void * vaddr; // VA
     bool writable;
@@ -37,5 +37,12 @@ struct vm_entry * find_vme(void * vaddr);
 void vm_destroy_func(struct hash_elem * e, void * aux);
 
 bool load_file(void * kaddr, struct vm_entry * target);
+
+struct mmap_file {
+  int mapid;
+  struct file * file;
+  struct list_elem elem;
+  struct list vme_list;
+};
 
 #endif

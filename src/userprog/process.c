@@ -164,18 +164,37 @@ process_exit (void)
   struct thread *cur = thread_current ();
   uint32_t *pd;
 
+  // printf("(process exit) exiting %d, %s\n", cur->tid, cur->name);
+
+  // printf("closing files...");
   (cur->next_fd)--;
   for(;cur->next_fd > 1; (cur->next_fd)--) {
     file_close(cur->fdt[cur->next_fd]);
   }
+  // printf("done\n");
 
+
+  // printf("freeing fdt...");
   cur->fdt += 2;
   palloc_free_page(cur->fdt);
   file_close(cur->run_file);
+  // printf("done\n");
 
+  // printf("unmapping files...\n");
+  struct list_elem * e;
+  struct mmap_file * temp;
+  for(e = list_begin(&(cur->mmap_list)); e != list_end(&(cur->mmap_list));) {
+    temp = list_entry(e, struct mmap_file, elem);
+    e = list_remove(e);
+    do_munmap(temp);
+  }
 
+  // printf("done\n");
+
+  // printf("destroying vm...");
   // destory vm entry
   hash_destroy(&(cur->vm), vm_destroy_func);
+  // printf("done\n");
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -633,7 +652,7 @@ struct file * process_get_file(int fd) {
   struct thread * cur = thread_current ();
 
   if(fd <= 1 || cur->next_fd <= fd) {
-    return 0;
+    return NULL;
   }
 
   return cur->fdt[fd];
@@ -686,4 +705,39 @@ bool handle_mm_fault(struct vm_entry * target) {
 
   // printf("done\n");
   return success;
+}
+
+void do_munmap(struct mmap_file * mmf) {
+  
+  // printf("(do_munmap) unmapping %x\n", mmf);
+
+  struct list * vme_list = &(mmf->vme_list);
+  
+  struct file * file = mmf->file;
+
+  struct list_elem * e;
+  struct vm_entry * vme;
+  void * vaddr;
+  for(e = list_begin(vme_list); e != list_end(vme_list);) {
+    vme = list_entry(e, struct vm_entry, mmap_elem);
+    vaddr = vme->vaddr;
+
+    if(pagedir_is_dirty(thread_current()->pagedir, vaddr)) { // if page mapped to file is dirty, update file at the disk
+      lock_acquire(&file_lock);
+      file_write_at(file, vaddr, vme->read_bytes, vme->offset);
+      lock_release(&file_lock);
+    } 
+    
+    e = list_remove(e); // removet from mmap list
+    hash_delete(&(thread_current()->vm), &(vme->elem)); // remove from vm hash table
+
+    free(vme); // free vm entry(page metadata)
+    pagedir_clear_page(thread_current()->pagedir, vaddr); // remove page from page directory
+    palloc_free_page(pagedir_get_page(thread_current()->pagedir, vaddr)); // free page
+  }
+
+  free(mmf); // free mmap file metadata
+  file_close(file); // close file
+
+  // printf("unmapped !\n");
 }
