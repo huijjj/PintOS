@@ -374,8 +374,8 @@ int syscall_mmap(int fd, void * addr) {
 	  vme->read_bytes = size < PGSIZE ? size: PGSIZE;
 	  vme->zero_bytes = PGSIZE - vme->read_bytes;
 
-	  list_push_back (&(mmf->vme_list), &(vme->mmap_elem));
-	  hash_insert(&(thread_current()->vm), &(vme->elem));
+	  list_push_back (&(mmf->vme_list), &(vme->mmap_elem)); // add to thread mmap list
+	  hash_insert(&(thread_current()->vm), &(vme->elem)); // add to vm table
 
 	  addr += PGSIZE;
 	  ofs += PGSIZE;

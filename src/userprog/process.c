@@ -76,7 +76,7 @@ start_process (void *file_name_)
   struct intr_frame if_;
   struct thread * cur = thread_current();
 
-  // initialize hash table
+  // initialize hash table(vm table)
   hash_init(&(cur->vm), vm_hash_func, vm_less_func, NULL);
 
   /* Initialize interrupt frame and load executable. */
@@ -166,6 +166,15 @@ process_exit (void)
 
   // printf("(process exit) exiting %d, %s\n", cur->tid, cur->name);
 
+  // printf("unmapping files...\n");
+  struct list_elem * e;
+  struct mmap_file * temp;
+  for(e = list_begin(&(cur->mmap_list)); e != list_end(&(cur->mmap_list));) {
+    temp = list_entry(e, struct mmap_file, elem);
+    e = list_remove(e);
+    do_munmap(temp);
+  }
+  
   // printf("closing files...");
   (cur->next_fd)--;
   for(;cur->next_fd > 1; (cur->next_fd)--) {
@@ -180,14 +189,6 @@ process_exit (void)
   file_close(cur->run_file);
   // printf("done\n");
 
-  // printf("unmapping files...\n");
-  struct list_elem * e;
-  struct mmap_file * temp;
-  for(e = list_begin(&(cur->mmap_list)); e != list_end(&(cur->mmap_list));) {
-    temp = list_entry(e, struct mmap_file, elem);
-    e = list_remove(e);
-    do_munmap(temp);
-  }
 
   // printf("done\n");
 
@@ -560,8 +561,8 @@ setup_stack (void **esp)
         palloc_free_page (kpage);
     }
 
-  struct vm_entry * vme = malloc(sizeof(struct vm_entry)); // allocate new vm frame
-  vme->type = VM_ANON; // since file is excutable, set type to ELF
+  struct vm_entry * vme = malloc(sizeof(struct vm_entry)); // allocate new vm entry for new page metadata
+  vme->type = VM_ANON;
   vme->vaddr = (void *)(((uint8_t *)PHYS_BASE) - PGSIZE); // set virtual(user) address
   vme->writable = true; // set access authority
   vme->is_loaded = true;
@@ -696,8 +697,13 @@ bool handle_mm_fault(struct vm_entry * target) {
   }
 
   if(success) {
-    install_page(target->vaddr, kaddr, target->writable);
-    target->is_loaded = true;
+    if(install_page(target->vaddr, kaddr, target->writable)) { // record paddr(kaddr) -> vaddr(uaddr) mapping in page directory(page table)
+      target->is_loaded = true;
+    }
+    else {
+      palloc_free_page(kaddr);
+      return false;
+    }
   }
   else {
     palloc_free_page(kaddr);

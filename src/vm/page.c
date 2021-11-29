@@ -10,7 +10,7 @@ extern struct lock file_lock;
 
 unsigned vm_hash_func(const struct hash_elem * e, void * aux) {
     struct vm_entry * vme = hash_entry(e, struct vm_entry, elem);
-    return hash_int((int)(vme->vaddr)); // get VPN (or VFN)
+    return hash_int((int)(vme->vaddr)); // get VPN (or VFN, hash index)
 }
 
 bool vm_less_func(const struct hash_elem * a, const struct hash_elem * b, void * aux) {
@@ -20,19 +20,23 @@ bool vm_less_func(const struct hash_elem * a, const struct hash_elem * b, void *
 struct vm_entry * find_vme(void * vaddr) {
     // vaddr -> virtual page
     struct vm_entry target;
-    target.vaddr = pg_round_down(vaddr);
+    target.vaddr = pg_round_down(vaddr); // remove page offest
     struct hash_elem * e = hash_find(&(thread_current()->vm), &(target.elem));
     return e ? hash_entry(e, struct vm_entry, elem) : NULL;
 }
 
 void vm_destroy_func(struct hash_elem * e, void * aux) {
     struct vm_entry * target = hash_entry(e, struct vm_entry, elem);
-    // uint32_t * pagedir = thread_current()->pagedir;
-    // if(target->is_loaded) {
-    //     pagedir_clear_page(pagedir, target->vaddr);
-    //     palloc_free_page(pagedir_get_page(pagedir, target->vaddr));
-    // }
-    // free(target);
+    uint32_t * pagedir = thread_current()->pagedir;
+
+    if(target) {
+        if(target->is_loaded) {
+            pagedir_clear_page(pagedir, target->vaddr); // remove from page table
+            palloc_free_page(pagedir_get_page(pagedir, target->vaddr));
+        }
+        free(target);
+    }
+
     return;
 }
 
@@ -53,9 +57,11 @@ bool load_file(void * kaddr, struct vm_entry * target) {
 
     // printf("read %d bytes\n", read_bytes);
 
-    if(read_bytes != target->read_bytes) {
+    if(read_bytes == target->read_bytes) {
+        memset(kaddr + read_bytes, 0, target->zero_bytes); // zero-ing out empty area
+        return true;
+    }
+    else {
         return false; // target->read_bytes is always smaller than page size
     }
-    memset(kaddr + read_bytes, 0, target->zero_bytes); // zero-ing out empty area
-    return true;
 }
