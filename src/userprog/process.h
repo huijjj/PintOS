@@ -23,4 +23,6 @@ bool handle_mm_fault(struct vm_entry *);
 
 void do_munmap(struct mmap_file *);
 
+bool expand_stack(void * vaddr);
+
 #endif /* userprog/process.h */

@@ -174,7 +174,16 @@ page_fault (struct intr_frame *f)
     }
     else {
       //  printf("target does not exist, %x\n", fault_addr);
-       syscall_exit(-1);
+       if(fault_addr >= f->esp - 32) { // if addr is with in the grow limit, grow limit 32 is chosen because PUSHA instruction 
+         if(!expand_stack(fault_addr)) { 
+            // printf("failed to expand stack\n");
+            syscall_exit(-1);
+         }
+       }
+       else {
+         // printf("segmentation fault\n");
+         syscall_exit(-1);
+       }
     }
   }
 

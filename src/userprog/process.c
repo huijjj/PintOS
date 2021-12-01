@@ -765,3 +765,35 @@ void do_munmap(struct mmap_file * mmf) {
 
   // printf("unmapped !\n");
 }
+
+bool expand_stack(void * vaddr) {
+  if(vaddr < PHYS_BASE - 2048 * PGSIZE) { // stack can grow up to 8MB(2^23 / 2^12 = 2^11 pages)
+    return false;
+  }
+
+  struct page * p;
+  struct vm_entry * vme;
+
+  for(; !find_vme(vaddr); vaddr += PGSIZE) { // grow stack until vaddr in included in stack
+    p = alloc_page(PAL_USER | PAL_ZERO);
+    if(!p) {
+      return false;
+    }
+
+    if(!install_page(pg_round_down(vaddr), p->kaddr, true)) {
+      free_page(p->kaddr);
+      return false;
+    }
+
+    vme = malloc(sizeof(struct vm_entry));
+
+    p->vme = vme;
+    vme->type = VM_ANON;
+    vme->vaddr = pg_round_down(vaddr);
+    vme->writable = true;
+    vme->is_loaded = true;
+
+    hash_insert(&(p->t->vm), &(vme->elem));
+  }
+  return true;
+}
