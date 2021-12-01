@@ -154,20 +154,26 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
+   // printf("fault addr: %x\n", fault_addrc);
+
   if(not_present == false) {
+   //  printf("page is present\n", fault_addr);
     syscall_exit(-1); // writing to read only page
   }
   else {
     struct vm_entry * target = find_vme(fault_addr); // get target virtual entry(frame)
     if(target) {
       if(write && !(target->writable)) { // writing to read only page
+      //   printf("writing to read only page\n", fault_addr);
         syscall_exit(-1);
       }
       if(!handle_mm_fault(target)) { // handle page fault, bring page to memory
+      //   printf("handler failed!\n", fault_addr);
         syscall_exit(-1);
       }
     }
     else {
+      //  printf("target does not exist, %x\n", fault_addr);
        syscall_exit(-1);
     }
   }

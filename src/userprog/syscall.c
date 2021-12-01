@@ -131,10 +131,10 @@ syscall_handler (struct intr_frame *f UNUSED)
   // thread_exit ();
 }
 
-struct vm_entry * verify_vaddr(void * vaddr)
-{
+struct vm_entry * verify_vaddr(void * vaddr) {
   struct vm_entry * vme = find_vme(vaddr);
   if (vme == NULL) {
+    // printf("(verify_vaddr) invalid vaddr!\n");
 	  syscall_exit(-1);
   }
   

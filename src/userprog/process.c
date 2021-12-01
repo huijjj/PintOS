@@ -548,27 +548,26 @@ setup_stack (void **esp)
 {
   // printf("setup_stack...\n");
 
-  uint8_t *kpage;
+  struct page * p;
   bool success = false;
 
-  kpage = palloc_get_page (PAL_USER | PAL_ZERO);
-  if (kpage != NULL) 
-    {
-      success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
-      if (success)
-        *esp = PHYS_BASE;
-      else
-        palloc_free_page (kpage);
-    }
+  p = alloc_page(PAL_USER | PAL_ZERO);
+  if (p != NULL) {
+    success = install_page(((uint8_t *) PHYS_BASE) - PGSIZE, p->kaddr, true);
+    if (success)
+      *esp = PHYS_BASE;
+    else
+      free_page(p->kaddr);
+  }
 
   struct vm_entry * vme = malloc(sizeof(struct vm_entry)); // allocate new vm entry for new page metadata
+  p->vme = vme;
   vme->type = VM_ANON;
   vme->vaddr = (void *)(((uint8_t *)PHYS_BASE) - PGSIZE); // set virtual(user) address
   vme->writable = true; // set access authority
   vme->is_loaded = true;
 
   hash_insert(&(thread_current()->vm), &(vme->elem)); // insert initialized page to current thread's vm hash table 
-  
   // printf("...setup stack\n");
 
   return success;
@@ -586,12 +585,18 @@ setup_stack (void **esp)
 static bool
 install_page (void *upage, void *kpage, bool writable)
 {
+  // printf("(install page) start\n");
   struct thread *t = thread_current ();
 
   /* Verify that there's not already a page at that virtual
      address, then map our page there. */
-  return (pagedir_get_page (t->pagedir, upage) == NULL
+  bool temp =  (pagedir_get_page (t->pagedir, upage) == NULL
           && pagedir_set_page (t->pagedir, upage, kpage, writable));
+  // return (pagedir_get_page (t->pagedir, upage) == NULL
+  //         && pagedir_set_page (t->pagedir, upage, kpage, writable));
+
+  // printf("(install page)done!\n");
+  return temp;
 }
 
 // argument passing
@@ -671,45 +676,60 @@ void process_close_file(int fd) {
 }
 
 bool handle_mm_fault(struct vm_entry * target) {
-  // printf("page fault occured! %x, %d\n", target->vaddr, target->type);
-  void * kaddr = palloc_get_page(PAL_USER);
+  // printf("(handle_mm_fault)page fault occured! %x, %d\n", target->vaddr, target->type);
+
+  struct page * p = alloc_page(PAL_USER);
   bool success = false;
 
-  if(!kaddr) {
-    return success;
+  if(!p) {
+    return false;
   }
 
+  // printf("1\n");
 
   switch (target->type) {
     case VM_BIN:
-      success = load_file(kaddr, target);
+      // printf("bin!\n");
+
+      success = load_file(p->kaddr, target);
       break;
     
     case VM_FILE:
-      success = load_file(kaddr, target);
+      // printf("file!\n");
+
+      success = load_file(p->kaddr, target);
       break;
 
     case VM_ANON:
+      // printf("anon!\n");
+
+      swap_in(target->swap_slot, p->kaddr);
+      success = true;
       break;
 
     default:
-      return success;
+      // printf("default!\n");
+
+      return false;
   }
 
+  // printf("2\n");
+
   if(success) {
-    if(install_page(target->vaddr, kaddr, target->writable)) { // record paddr(kaddr) -> vaddr(uaddr) mapping in page directory(page table)
+    if(install_page(target->vaddr, p->kaddr, target->writable)) { // record paddr(kaddr) -> vaddr(uaddr) mapping in page directory(page table)
       target->is_loaded = true;
     }
     else {
-      palloc_free_page(kaddr);
+      free_page(p->kaddr);
       return false;
     }
   }
   else {
-    palloc_free_page(kaddr);
+    free_page(p->kaddr);
   }
 
-  // printf("done\n");
+  p->vme = target;
+  // printf("(handle_mm_fault)done\n");
   return success;
 }
 
@@ -735,11 +755,9 @@ void do_munmap(struct mmap_file * mmf) {
     } 
     
     e = list_remove(e); // removet from mmap list
+    free_page(pagedir_get_page(thread_current()->pagedir, vaddr)); // free page
     hash_delete(&(thread_current()->vm), &(vme->elem)); // remove from vm hash table
-
     free(vme); // free vm entry(page metadata)
-    pagedir_clear_page(thread_current()->pagedir, vaddr); // remove page from page directory
-    palloc_free_page(pagedir_get_page(thread_current()->pagedir, vaddr)); // free page
   }
 
   free(mmf); // free mmap file metadata
