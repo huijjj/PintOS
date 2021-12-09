@@ -46,6 +46,13 @@ void vm_destroy_func(struct hash_elem * e, void * aux) {
         if(target->is_loaded) {
             free_page(pagedir_get_page(pagedir, target->vaddr));
         }
+        else {
+            if(target->type == VM_ANON) { // release swap slot
+                lock_acquire(&swap_lock);
+                bitmap_set(swap_bitmap, target->swap_slot, 0);
+                lock_release(&swap_lock);
+            }
+        }
         free(target);
     }
 
@@ -239,7 +246,7 @@ void swap_in(size_t used_index, void * kaddr) {
         buf += 512;
     }
     lock_release(&file_lock);
-    bitmap_set (swap_bitmap, used_index, 0);
+    bitmap_set(swap_bitmap, used_index, 0);
 
     lock_release(&swap_lock);
 }
