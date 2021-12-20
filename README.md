@@ -1,6 +1,12 @@
 # Pintos
 
-Pintos, a simple operating system framework for the 80x86 architecture created at Stanford University
+Pintos, a simple operating system framework for the 80x86 architecture created at Stanford University.
+
+This repository contains solution for LAB1(threads), LAB2(userprog) and LAB3(vm) implemented by hardworking students in POSTECH, korea. Refer to each LAB_solution(eg, vm_solution) branch to see the compact solution. You can look at LAB_history(eg, vm_history) branch to see solutions for each lab's subproblems(check the commit message if you are confused about what these codes are meant to be).
+
+**GOOD LUCK!**
+
+*_special thanks to my talented teammate KyeongMin Lee_*
 
 ## Environment
 
