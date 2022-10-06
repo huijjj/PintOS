@@ -548,6 +548,9 @@ init_thread (struct thread *t, const char *name, int priority)
 
   old_level = intr_disable ();
 
+  t->next_mapid = 0;
+  list_init(&(t->mmap_list));
+
 #ifdef USERPROG
   sema_init(&(t->child_lock), 0);
   sema_init(&(t->zombie_lock), 0);
